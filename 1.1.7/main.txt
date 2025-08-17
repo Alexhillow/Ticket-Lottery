@@ -1,0 +1,132 @@
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.pdfgen import canvas
+from reportlab.lib.units import mm
+from reportlab.lib import colors
+
+# ========== Configuración general ==========
+PAGE_W, PAGE_H = landscape(A4)
+MARGEN_X = 10 * mm
+MARGEN_Y = 10 * mm
+
+COLUMNAS = 4
+BLOQUES_POR_COLUMNA = 5
+SEP_ANCHO = 20 * mm
+LINEA_OFFSET = 2 * mm
+
+FONT_ID = ("Helvetica-Bold", 12)
+FONT_NUM = ("Courier", 11)
+
+PADDING_COL_X = 4 * mm
+ESPACIO_ID_A_NUM = 5 * mm
+ESPACIO_ENTRE_NUMS = 7 * mm
+
+SEPARATOR_IMAGE = "bono_hermosillo.jpg"
+BACK_IMAGE = "condiciones_boleto.jpg"
+
+# ========== Utilidades ==========
+def draw_image_rotated(c, image_path, x, y, w, h, angle=90, stretch=False):
+    """
+    Dibuja una imagen rotada en el ángulo dado (90 o -90 típicamente).
+    - Si stretch=True: la imagen se deforma para ocupar todo el rectángulo (par a par).
+    - Si stretch=False: mantiene proporción.
+    """
+    c.saveState()
+    if angle == 90:
+        c.translate(x + w, y)
+        c.rotate(90)
+        draw_w, draw_h = (h, w)
+    elif angle == -90:
+        c.translate(x, y + h)
+        c.rotate(-90)
+        draw_w, draw_h = (h, w)
+    else:
+        raise ValueError("Solo soportado 90 o -90 grados")
+
+    c.drawImage(
+        image_path,
+        0, 0,
+        width=draw_w,
+        height=draw_h,
+        preserveAspectRatio=(not stretch),
+        anchor='sw',
+        mask='auto'
+    )
+    c.restoreState()
+
+def draw_block(c, x_left, y_top, col_width, block_height, id_num, nums4):
+    c.setFillColor(colors.black)
+    c.setFont(*FONT_ID)
+    c.drawString(x_left + PADDING_COL_X, y_top - 3, f"ID: {id_num:010d}")
+
+    c.setFont(*FONT_NUM)
+    y = y_top - ESPACIO_ID_A_NUM
+    for n in nums4:
+        c.drawString(x_left + PADDING_COL_X, y, n)
+        y -= ESPACIO_ENTRE_NUMS
+
+    c.setStrokeColor(colors.black)
+    c.setLineWidth(0.6)
+    y_linea = y_top - block_height + LINEA_OFFSET
+    c.line(x_left, y_linea, x_left + col_width, y_linea)
+
+# ========== Generación ==========
+def generar_pdf(nombre_pdf="boletos_00000_99999_con_reverso.pdf"):
+    c = canvas.Canvas(nombre_pdf, pagesize=landscape(A4))
+
+    alto_util = PAGE_H - 2 * MARGEN_Y
+    total_separadores = COLUMNAS
+    ancho_util = PAGE_W - 2 * MARGEN_X - total_separadores * SEP_ANCHO
+    col_width = ancho_util / COLUMNAS
+    block_height = alto_util / BLOQUES_POR_COLUMNA
+
+    y_top_page = PAGE_H - MARGEN_Y
+    y_bottom = MARGEN_Y
+
+    all_numbers = [f"{i:05d}" for i in range(100000)]
+    idx = 0
+    block_id = 1
+
+    nums_por_hoja = COLUMNAS * BLOQUES_POR_COLUMNA * 4
+    total_hojas = len(all_numbers) // nums_por_hoja
+
+    for _ in range(total_hojas):
+        # --------- Frente ---------
+        x = MARGEN_X
+        for col in range(COLUMNAS):
+            for b in range(BLOQUES_POR_COLUMNA):
+                nums4 = all_numbers[idx: idx + 4]
+                idx += 4
+                y_block_top = y_top_page - b * block_height
+                draw_block(c, x, y_block_top, col_width, block_height, block_id, nums4)
+                block_id += 1
+
+            # separador (rotado al revés y estirado de par a par)
+            extra_stretch = 11 * mm
+            draw_image_rotated(
+                c, SEPARATOR_IMAGE,
+                x + col_width - extra_stretch, y_bottom,
+                SEP_ANCHO + extra_stretch, alto_util,
+                angle=-90, stretch=True
+            )
+            x += col_width + SEP_ANCHO
+
+        c.showPage()
+
+        # --------- Reverso ---------
+        x = MARGEN_X
+        for col in range(COLUMNAS):
+            draw_image_rotated(
+                c, BACK_IMAGE,
+                x, y_bottom,
+                col_width, alto_util,
+                angle=-90, stretch=True
+            )
+            x += col_width + SEP_ANCHO
+
+        c.showPage()
+
+    c.save()
+    print(f"PDF generado: {nombre_pdf} ({total_hojas*2} páginas)")
+
+if __name__ == "__main__":
+    generar_pdf()
